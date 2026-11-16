@@ -32,6 +32,10 @@ pub enum DocStyle {
     Sphinx,
     /// Tags: Javadoc, JSDoc / TSDoc and Doxygen (`@param x`, `\param x`).
     Tags,
+    /// Markdown headings, as rustdoc's convention has them: `# Examples`,
+    /// `# Panics`, `# Errors`, `# Safety`, `# Arguments` (a list of
+    /// `` * `name` - text `` items).
+    Headings,
 }
 
 /// One documented parameter, exception, return value and the like.
@@ -96,6 +100,7 @@ pub fn parse(text: &str, style: DocStyle) -> Docs {
         DocStyle::Numpy => numpy(&text),
         DocStyle::Sphinx => sphinx(&text),
         DocStyle::Tags => tags(&text),
+        DocStyle::Headings => headings(&text),
         DocStyle::Plain | DocStyle::Auto => Docs {
             body: text.trim().to_owned(),
             ..Docs::default()
@@ -143,6 +148,16 @@ fn resolve_style(text: &str, style: DocStyle) -> DocStyle {
     }
     if lines.iter().any(|l| tag(l.trim_start()).is_some()) {
         return DocStyle::Tags;
+    }
+    if lines.iter().any(|l| {
+        heading(l).is_some_and(|title| {
+            matches!(
+                title.to_lowercase().as_str(),
+                "examples" | "panics" | "errors" | "safety" | "arguments"
+            )
+        })
+    }) {
+        return DocStyle::Headings;
     }
     DocStyle::Plain
 }
@@ -687,6 +702,136 @@ fn tags(text: &str) -> Docs {
     docs
 }
 
+// -- Headings ----------------------------------------------------------------
+
+/// A Markdown ATX heading's text: `# Examples` (up to three spaces before
+/// it, closing `#`s dropped).
+fn heading(line: &str) -> Option<&str> {
+    if indent_of(line) > 3 {
+        return None;
+    }
+    let trimmed = line.trim_start();
+    let level = trimmed.chars().take_while(|&c| c == '#').count();
+    if !(1..=6).contains(&level) {
+        return None;
+    }
+    let rest = &trimmed[level..];
+    if !rest.is_empty() && !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    let title = rest.trim().trim_end_matches('#').trim_end();
+    (!title.is_empty()).then_some(title)
+}
+
+/// The fence a line opens or closes a fenced code block with: its
+/// character and length.
+pub fn fence(line: &str) -> Option<(char, usize)> {
+    if indent_of(line) > 3 {
+        return None;
+    }
+    let trimmed = line.trim_start();
+    let c = trimmed.chars().next().filter(|&c| c == '`' || c == '~')?;
+    let len = trimmed.chars().take_while(|&x| x == c).count();
+    (len >= 3).then_some((c, len))
+}
+
+/// Whether `line`, a fence line, closes a block `open` opened.
+pub fn closes(open: (char, usize), line: &str) -> bool {
+    fence(line).is_some_and(|(c, len)| {
+        c == open.0 && len >= open.1 && line.trim()[len..].trim().is_empty()
+    })
+}
+
+fn headings(text: &str) -> Docs {
+    let mut docs = Docs::default();
+    let mut body: Vec<&str> = Vec::new();
+    let mut sections: Vec<(&str, Vec<&str>)> = Vec::new();
+    let mut open: Option<(char, usize)> = None;
+    for line in text.lines() {
+        match open {
+            Some(o) if closes(o, line) => open = None,
+            Some(_) => {}
+            None => {
+                if let Some(f) = fence(line) {
+                    open = Some(f);
+                } else if let Some(title) = heading(line) {
+                    sections.push((title, Vec::new()));
+                    continue;
+                }
+            }
+        }
+        match sections.last_mut() {
+            Some((_, lines)) => lines.push(line),
+            None => body.push(line),
+        }
+    }
+    docs.body = block(&body);
+    for (title, lines) in sections {
+        let text = block(&lines);
+        match title.to_lowercase().as_str() {
+            "deprecated" => docs.deprecated = Some(text),
+            "example" | "examples" => docs.examples.push(text),
+            lower => match google_section(lower) {
+                Some(kind @ (Section::Params | Section::TypeParams | Section::Attributes)) => {
+                    match list_entries(&lines) {
+                        Some(entries) => add_section(&mut docs, kind, title, entries, text),
+                        None => docs.sections.push((title.to_owned(), text)),
+                    }
+                }
+                Some(Section::Returns) => docs.returns = merge_return(Vec::new(), text),
+                _ => docs.sections.push((title.to_owned(), text)),
+            },
+        }
+    }
+    docs
+}
+
+/// A list item's text: `* text`, `- text`, `+ text`.
+fn list_item(line: &str) -> Option<&str> {
+    let trimmed = line.trim_start();
+    ["* ", "- ", "+ "]
+        .iter()
+        .find_map(|m| trimmed.strip_prefix(m))
+        .map(str::trim)
+}
+
+/// A list of named entries, `` * `name` - text `` (or `name: text`), one
+/// per item, continued on indented lines; `None` if it is not one.
+fn list_entries(lines: &[&str]) -> Option<Vec<Entry>> {
+    let mut entries: Vec<Entry> = Vec::new();
+    for line in lines {
+        if line.trim().is_empty() {
+            continue;
+        }
+        match list_item(line) {
+            Some(item) => {
+                let (name, rest) = match item.strip_prefix('`') {
+                    Some(r) => r.split_once('`')?,
+                    None => item.split_once([' ', ':'])?,
+                };
+                let rest = rest.trim_start();
+                let rest = ["- ", "-- ", "\u{2013} ", "\u{2014} ", ": "]
+                    .iter()
+                    .find_map(|s| rest.strip_prefix(s))
+                    .or_else(|| rest.strip_prefix(':'))
+                    .unwrap_or(rest);
+                entries.push(Entry {
+                    name: Some(name.trim().to_owned()),
+                    ty: None,
+                    text: rest.trim().to_owned(),
+                });
+            }
+            None if line.starts_with(char::is_whitespace) => {
+                let last = entries.last_mut()?;
+                last.text.push(' ');
+                last.text.push_str(line.trim());
+            }
+            None => return None,
+        }
+    }
+    (!entries.is_empty()).then_some(entries)
+}
+
 /// `{type} rest`: the type and the rest.
 fn braced_type(text: &str) -> (Option<String>, String) {
     if let Some(rest) = text.strip_prefix('{')
@@ -735,6 +880,36 @@ mod tests {
             ty: ty.map(str::to_owned),
             text: text.to_owned(),
         }
+    }
+
+    #[test]
+    fn headings_style() {
+        let text = "Adds.\n\nMore.\n\n# Arguments\n\n* `a` - The first,\n  really.\n* `b` - The second.\n\n# Examples\n\n```\n# use x::add;\nassert_eq!(add(1, 2), 3);\n```\n\n# Panics\n\nOn overflow.\n\n## Returns\n\nThe sum.\n\n# Deprecated\n\nUse `plus`.\n";
+        assert_eq!(detect(text), DocStyle::Headings);
+        let docs = parse(text, DocStyle::Auto);
+        assert_eq!(docs.body, "Adds.\n\nMore.");
+        assert_eq!(
+            docs.params,
+            [
+                entry(Some("a"), None, "The first, really."),
+                entry(Some("b"), None, "The second.")
+            ]
+        );
+        // `# use` in a code block is not a heading.
+        assert_eq!(
+            docs.examples,
+            ["```\n# use x::add;\nassert_eq!(add(1, 2), 3);\n```"]
+        );
+        assert_eq!(
+            docs.sections,
+            [("Panics".to_owned(), "On overflow.".to_owned())]
+        );
+        assert_eq!(docs.returns, Some(entry(None, None, "The sum.")));
+        assert_eq!(docs.deprecated.as_deref(), Some("Use `plus`."));
+        // Arguments that are not a list of names stay a section.
+        let docs = parse("# Arguments\n\nAny.\n", DocStyle::Headings);
+        assert_eq!(docs.sections, [("Arguments".to_owned(), "Any.".to_owned())]);
+        assert_eq!(detect("# Title\n\nText."), DocStyle::Plain);
     }
 
     #[test]

@@ -33,7 +33,7 @@
 //! | `private` | `false` | Document private items too. |
 //! | `title` | `"<Language> API"` | The title of the index page. |
 //! | `doc_format` | the language's | The extension of the parser for doc comments (`md`, `rst`). |
-//! | `doc_style` | `"auto"` | Docstring sections: `auto`, `plain`, `google`, `numpy`, `sphinx`, `tags`. |
+//! | `doc_style` | `"auto"` | Docstring sections: `auto`, `plain`, `google`, `numpy`, `sphinx`, `tags`, `headings`. |
 //! | `generate` | `true` | Generate pages (off: only the directives and roles). |
 //! | `primary` | `false` | Also take the domain's roles without their prefix (`:func:` for `:py:func:`), as Sphinx's `primary_domain` does. |
 //!
