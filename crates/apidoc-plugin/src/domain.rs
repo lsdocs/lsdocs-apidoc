@@ -364,7 +364,12 @@ fn role(
         return None;
     }
     let name = c.attrs.get("name")?.as_str()?;
-    let role = name.strip_prefix(language.domain())?.strip_prefix(':')?;
+    // `py:func`, or `func` where the domain is the primary one (such role
+    // nodes exist only if declared).
+    let role = name
+        .strip_prefix(language.domain())
+        .and_then(|r| r.strip_prefix(':'))
+        .unwrap_or(name);
     let kinds = language.roles().into_iter().find(|(r, _)| r == role)?.1;
     let raw = c
         .attrs

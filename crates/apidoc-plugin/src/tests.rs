@@ -82,7 +82,8 @@ fn items() -> Value {
 /// Parses `pages` with the plugin's syntax and runs the plugin over them,
 /// with the Markdown and reStructuredText parsers for `site/parse`.
 async fn build(pages: &[(&str, &str)], options: Value) -> Vec<(Document, Vec<Diagnostic>)> {
-    let syntax = syntax(&Fake);
+    let primary = options["primary"] == true;
+    let syntax = syntax(&Fake, primary);
     let documents = pages
         .iter()
         .map(|(source, text)| {
@@ -308,4 +309,18 @@ fn signatures_round_trip() {
         Some("fn() -> u8")
     );
     assert!(default_describe(ItemKind::Function, "(x)", &[], ".").is_none());
+}
+
+#[tokio::test]
+async fn primary_domain_roles_have_no_prefix() {
+    let out = build(
+        &[("a.rst", "See :func:`pkg.helper`.\n")],
+        json!({"items": items(), "primary": true}),
+    )
+    .await;
+    let (a, _) = out.iter().find(|(d, _)| d.source == "a.rst").unwrap();
+    assert_eq!(
+        links(&a.children),
+        ["pkg.helper() -> api/fk/pkg.md#fk.pkg.helper"]
+    );
 }

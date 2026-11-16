@@ -35,6 +35,7 @@
 //! | `doc_format` | the language's | The extension of the parser for doc comments (`md`, `rst`). |
 //! | `doc_style` | `"auto"` | Docstring sections: `auto`, `plain`, `google`, `numpy`, `sphinx`, `tags`. |
 //! | `generate` | `true` | Generate pages (off: only the directives and roles). |
+//! | `primary` | `false` | Also take the domain's roles without their prefix (`:func:` for `:py:func:`), as Sphinx's `primary_domain` does. |
 //!
 //! List the plugin before `transform-links`, `transform-toc` and
 //! `transform-highlight`.
@@ -168,6 +169,7 @@ pub(crate) struct Options {
     pub doc_format: Option<String>,
     pub doc_style: Option<DocStyle>,
     pub generate: bool,
+    pub primary: bool,
 }
 
 impl Default for Options {
@@ -179,6 +181,7 @@ impl Default for Options {
             doc_format: None,
             doc_style: None,
             generate: true,
+            primary: false,
         }
     }
 }
@@ -216,12 +219,15 @@ pub fn plugin<L: Language>(language: L, version: &str) -> Plugin {
             language,
             state: Mutex::default(),
         })
-        .syntax(move |_init: &InitializeParams| syntax(&*for_syntax))
+        .syntax(move |init: &InitializeParams| {
+            let primary = Options::read(&init.options).is_ok_and(|o| o.primary);
+            syntax(&*for_syntax, primary)
+        })
         .cacheable()
 }
 
 /// The directives and roles of `language`'s domain.
-pub(crate) fn syntax(language: &impl Language) -> Syntax {
+pub(crate) fn syntax(language: &impl Language, primary: bool) -> Syntax {
     let d = language.domain();
     let mut directives = Vec::new();
     for (object, _) in language.objects() {
@@ -267,13 +273,21 @@ pub(crate) fn syntax(language: &impl Language) -> Syntax {
         argument: ArgumentSyntax::Text,
         ..DirectiveSyntax::default()
     });
-    let roles = language
+    let mut roles: Vec<RoleSyntax> = language
         .roles()
         .into_iter()
         .map(|(name, _)| RoleSyntax {
             name: format!("{d}:{name}"),
         })
         .collect();
+    if primary {
+        roles.extend(
+            language
+                .roles()
+                .into_iter()
+                .map(|(name, _)| RoleSyntax { name }),
+        );
+    }
     Syntax { directives, roles }
 }
 
