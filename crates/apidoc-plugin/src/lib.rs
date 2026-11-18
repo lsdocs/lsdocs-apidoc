@@ -54,11 +54,11 @@ use lsdocs_apidoc::index::Entry;
 use lsdocs_apidoc::{DocStyle, Index, Item, ItemKind, Param, ParamKind, Signature, Visibility};
 use lsdocs_plugin_sdk::doctree::Document;
 use lsdocs_plugin_sdk::protocol::{
-    ArgumentSyntax, ContentSyntax, Diagnostic, DirectiveSyntax, InitializeParams, OptionSyntax,
+    ArgumentSyntax, ContentSyntax, Diagnostic, DirectiveSyntax, OptionSyntax,
     ParseTransformAllResult, ParseTransformEachParams, ParseTransformEachResult,
     RenderTransformEachParams, RenderTransformEachResult, RoleSyntax, Severity, Syntax,
 };
-use lsdocs_plugin_sdk::{Context, Plugin, PluginError, PluginResult, Transformer};
+use lsdocs_plugin_sdk::{Context, Plugin, PluginError, PluginResult, Setup, Transformer};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -215,12 +215,13 @@ pub fn plugin<L: Language>(language: L, version: &str) -> Plugin {
     let name = format!("apidoc-{}", language.domain());
     let for_syntax = Arc::clone(&language);
     Plugin::new(name, version)
+        .settings(lsdocs_plugin_sdk::config::settings_toml)
         .transformer(Api {
             language,
             state: Mutex::default(),
         })
-        .syntax(move |init: &InitializeParams| {
-            let primary = Options::read(&init.options).is_ok_and(|o| o.primary);
+        .syntax(move |setup: &Setup| {
+            let primary = Options::read(&setup.settings).is_ok_and(|o| o.primary);
             syntax(&*for_syntax, primary)
         })
         .cacheable()
@@ -324,7 +325,7 @@ impl<L: Language> Transformer for Api<L> {
         params: ParseTransformEachParams,
         ctx: &Context,
     ) -> PluginResult<ParseTransformEachResult> {
-        Options::read(ctx.options())?;
+        Options::read(ctx.settings())?;
         let described = domain::described(&*self.language, &params.document);
         let items: Vec<Value> = described
             .into_iter()
@@ -341,7 +342,7 @@ impl<L: Language> Transformer for Api<L> {
         collected: &Value,
         ctx: &Context,
     ) -> PluginResult<ParseTransformAllResult> {
-        let options = Options::read(ctx.options())?;
+        let options = Options::read(ctx.settings())?;
         let language = &*self.language;
         let mut state = State::default();
         let mut result = ParseTransformAllResult::default();
@@ -369,7 +370,7 @@ impl<L: Language> Transformer for Api<L> {
                 .map(PathBuf::from)
                 .unwrap_or_default();
             let extracted = language
-                .extract(ctx.options(), &root)
+                .extract(ctx.settings(), &root)
                 .map_err(|e| PluginError::new(format!("{}: {e}", language.name())))?;
             result.diagnostics.extend(extracted.diagnostics);
             result.dependencies = extracted.files;
@@ -407,7 +408,7 @@ impl<L: Language> Transformer for Api<L> {
         params: RenderTransformEachParams,
         ctx: &Context,
     ) -> PluginResult<RenderTransformEachResult> {
-        let options = Options::read(ctx.options())?;
+        let options = Options::read(ctx.settings())?;
         let state = Arc::clone(&self.state.lock().unwrap_or_else(PoisonError::into_inner));
         let mut document: Document = params.document;
         let mut diagnostics = Vec::new();

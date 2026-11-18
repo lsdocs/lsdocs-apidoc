@@ -96,11 +96,13 @@ async fn build(pages: &[(&str, &str)], options: Value) -> Vec<(Document, Vec<Dia
             doc
         })
         .collect();
-    let init = InitializeParams {
-        site: SiteInfo::default(),
+    let init = lsdocs_plugin_sdk::Setup::with_settings(
+        InitializeParams {
+            site: SiteInfo::default(),
+            ..InitializeParams::default()
+        },
         options,
-        ..InitializeParams::default()
-    };
+    );
     let plugin = plugin(Fake, "0.0.0");
     let ctx = context_with_parsers(
         &plugin,
