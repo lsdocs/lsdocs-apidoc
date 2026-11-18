@@ -6,12 +6,12 @@
 //! directives and roles are. [`plugin`] turns it into an lsdocs plugin (a
 //! transformer) that:
 //!
-//! - **generates pages** (through `transform/collected`): one per module,
+//! - **generates pages** (through `parse/transform/all`): one per module,
 //!   under `output` (default `api/<domain>`), each item a section with its
 //!   signature and its doc comment, plus an index page listing the
 //!   modules. Doc comments are split into sections by
 //!   [`lsdocs_apidoc::docstring`] and their text parsed by the site's
-//!   parser for the language's doc markup (`site/parse`), so Markdown or
+//!   parser for the language's doc markup (`host/parse`), so Markdown or
 //!   reStructuredText in a docstring becomes real document nodes;
 //! - **declares the domain's directives and roles** (syntax extensions):
 //!   `.. <domain>:<object>:: signature` describes an item by hand
@@ -55,8 +55,8 @@ use lsdocs_apidoc::{DocStyle, Index, Item, ItemKind, Param, ParamKind, Signature
 use lsdocs_plugin_sdk::doctree::Document;
 use lsdocs_plugin_sdk::protocol::{
     ArgumentSyntax, ContentSyntax, Diagnostic, DirectiveSyntax, InitializeParams, OptionSyntax,
-    RoleSyntax, Severity, Syntax, TransformApplyParams, TransformApplyResult,
-    TransformCollectParams, TransformCollectResult, TransformCollectedResult,
+    ParseTransformAllResult, ParseTransformEachParams, ParseTransformEachResult,
+    RenderTransformEachParams, RenderTransformEachResult, RoleSyntax, Severity, Syntax,
 };
 use lsdocs_plugin_sdk::{Context, Plugin, PluginError, PluginResult, Transformer};
 use serde::Deserialize;
@@ -317,34 +317,34 @@ impl<L: Language> Api<L> {
 }
 
 impl<L: Language> Transformer for Api<L> {
-    const COLLECTS: bool = true;
+    const READS: bool = true;
 
-    async fn collect(
+    async fn read(
         &self,
-        params: TransformCollectParams,
+        params: ParseTransformEachParams,
         ctx: &Context,
-    ) -> PluginResult<TransformCollectResult> {
+    ) -> PluginResult<ParseTransformEachResult> {
         Options::read(ctx.options())?;
         let described = domain::described(&*self.language, &params.document);
         let items: Vec<Value> = described
             .into_iter()
             .map(|(path, kind)| json!({"path": path, "kind": kind}))
             .collect();
-        Ok(TransformCollectResult {
+        Ok(ParseTransformEachResult {
             data: json!({ "items": items }),
-            ..TransformCollectResult::default()
+            ..ParseTransformEachResult::default()
         })
     }
 
-    async fn generate(
+    async fn conclude(
         &self,
         collected: &Value,
         ctx: &Context,
-    ) -> PluginResult<TransformCollectedResult> {
+    ) -> PluginResult<ParseTransformAllResult> {
         let options = Options::read(ctx.options())?;
         let language = &*self.language;
         let mut state = State::default();
-        let mut result = TransformCollectedResult::default();
+        let mut result = ParseTransformAllResult::default();
         // Items described by hand, where they are.
         for (page, data) in collected.as_object().into_iter().flatten() {
             for item in data["items"].as_array().into_iter().flatten() {
@@ -404,9 +404,9 @@ impl<L: Language> Transformer for Api<L> {
 
     async fn apply(
         &self,
-        params: TransformApplyParams,
+        params: RenderTransformEachParams,
         ctx: &Context,
-    ) -> PluginResult<TransformApplyResult> {
+    ) -> PluginResult<RenderTransformEachResult> {
         let options = Options::read(ctx.options())?;
         let state = Arc::clone(&self.state.lock().unwrap_or_else(PoisonError::into_inner));
         let mut document: Document = params.document;
@@ -420,10 +420,10 @@ impl<L: Language> Transformer for Api<L> {
             &mut diagnostics,
         )
         .await;
-        Ok(TransformApplyResult {
+        Ok(RenderTransformEachResult {
             document,
             diagnostics,
-            ..TransformApplyResult::default()
+            ..RenderTransformEachResult::default()
         })
     }
 }

@@ -80,7 +80,7 @@ fn items() -> Value {
 }
 
 /// Parses `pages` with the plugin's syntax and runs the plugin over them,
-/// with the Markdown and reStructuredText parsers for `site/parse`.
+/// with the Markdown and reStructuredText parsers for `host/parse`.
 async fn build(pages: &[(&str, &str)], options: Value) -> Vec<(Document, Vec<Diagnostic>)> {
     let primary = options["primary"] == true;
     let syntax = syntax(&Fake, primary);
