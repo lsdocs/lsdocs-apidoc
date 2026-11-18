@@ -326,3 +326,24 @@ async fn primary_domain_roles_have_no_prefix() {
         ["pkg.helper() -> api/fk/pkg.md#fk.pkg.helper"]
     );
 }
+
+#[test]
+fn unknown_settings_are_errors() {
+    let dir = std::env::temp_dir().join(format!("lsdocs-apidoc-keys-{}", std::process::id()));
+    let settings = dir.join("lsdocs/fk/settings.toml");
+    std::fs::create_dir_all(settings.parent().unwrap()).unwrap();
+    std::fs::write(&settings, "output = \"api\"\nouptut = \"x\"\n").unwrap();
+    let params = InitializeParams {
+        config: lsdocs_plugin_sdk::protocol::ConfigInfo {
+            dir: dir.to_string_lossy().into_owned(),
+            name: "fk".into(),
+        },
+        ..InitializeParams::default()
+    };
+    let err = plugin(Fake, "0.0.0").setup(&params).unwrap_err();
+    std::fs::write(&settings, "output = \"api\"\n").unwrap();
+    let ok = plugin(Fake, "0.0.0").setup(&params);
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(err.contains("`ouptut`"), "{err}");
+    assert!(ok.is_ok(), "{ok:?}");
+}

@@ -90,6 +90,13 @@ pub trait Language: Send + Sync + 'static {
         DocStyle::Auto
     }
 
+    /// The settings the package reads itself (`paths`, ...), besides the
+    /// framework's ([`FRAMEWORK_SETTINGS`]); any other key in its
+    /// settings file is an error.
+    fn settings(&self) -> &[&str] {
+        &[]
+    }
+
     /// Extracts the API: the top-level items (usually modules), the files
     /// read, and problems found. `options` are the plugin's options;
     /// `root` is the site directory, which relative paths start from.
@@ -159,6 +166,17 @@ pub struct Extracted {
     pub diagnostics: Vec<Diagnostic>,
 }
 
+/// The settings every language package takes.
+pub const FRAMEWORK_SETTINGS: &[&str] = &[
+    "output",
+    "private",
+    "title",
+    "doc_format",
+    "doc_style",
+    "generate",
+    "primary",
+];
+
 /// The options every language package takes.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
@@ -215,7 +233,17 @@ pub fn plugin<L: Language>(language: L, version: &str) -> Plugin {
     let name = format!("apidoc-{}", language.domain());
     let for_syntax = Arc::clone(&language);
     Plugin::new(name, version)
-        .settings(lsdocs_plugin_sdk::config::settings_toml)
+        .settings({
+            let keys: Vec<String> = FRAMEWORK_SETTINGS
+                .iter()
+                .chain(language.settings())
+                .map(|k| (*k).to_owned())
+                .collect();
+            move |c| {
+                let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
+                lsdocs_plugin_sdk::config::settings_toml_keys(c, &keys)
+            }
+        })
         .transformer(Api {
             language,
             state: Mutex::default(),
