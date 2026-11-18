@@ -25,7 +25,7 @@
 //!   name. Item anchors are `<domain>.<qualified name>`, so `ref` and
 //!   links by anchor work too.
 //!
-//! Options every language package takes (besides its own, e.g. paths):
+//! Settings every language package takes (besides its own, e.g. paths):
 //!
 //! | Option | Default | Meaning |
 //! |---|---|---|
