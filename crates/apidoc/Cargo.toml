@@ -1,11 +1,11 @@
 [package]
 name = "lsdocs-apidoc"
 description = "A language-neutral model of API documentation: items, signatures, doc comment sections and name resolution."
-version.workspace = true
+version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
+repository.workspace = true
 keywords = ["documentation", "api", "docstring"]
 
 [lints]
